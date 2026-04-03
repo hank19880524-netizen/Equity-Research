@@ -1,0 +1,5 @@
+{
+  "name": "Taiwan Stock Value Screener",
+  "description": "An automated stock tracking system for the Taiwan market, focusing on P/E, P/B, and low-base entry points.",
+  "requestFramePermissions": []
+}

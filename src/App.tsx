@@ -6,7 +6,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Settings, TrendingDown, AlertCircle, CheckCircle2, BarChart3, Search, Info, ArrowUpRight, RefreshCw, Clock, Loader2, ShieldAlert, X, Zap, LayoutGrid } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI, Type } from "@google/genai";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 
 // 初始台股數據 (作為備援)
@@ -84,73 +83,33 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [newTicker, setNewTicker] = useState('');
 
-  // AI 同步功能：使用 Gemini Search Grounding 抓取即時數據
+  // AI 同步功能：呼叫後端 API 抓取即時數據
   const syncMarketData = async () => {
     if (isSyncing) return;
-
-    // 檢查是否需要選擇 API Key (針對部署環境)
-    if (typeof window !== 'undefined' && (window as any).aistudio) {
-      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-      if (!hasKey) {
-        setNeedsKey(true);
-        await (window as any).aistudio.openSelectKey();
-        // 假設開啟後使用者會處理，繼續執行或讓使用者再點一次
-      }
-    }
 
     setIsSyncing(true);
     setSyncError(null);
     
     try {
-      // 優先使用 GEMINI_API_KEY，其次使用 API_KEY (平台注入)
-      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-      
-      if (!apiKey) {
-        setSyncError("請先點擊設定選擇 API 金鑰。");
-        if (typeof window !== 'undefined' && (window as any).aistudio) {
-          await (window as any).aistudio.openSelectKey();
-        }
-        setIsSyncing(false);
-        return;
-      }
-
-      const ai = new GoogleGenAI({ apiKey });
       const tickers = stocks.map(s => s.ticker).join(', ');
       const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
       
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `現在時間是台北時間 ${now}。請直接造訪 https://tw.stock.yahoo.com/ 搜尋並提供以下台股代號的「最新即時」市場數據：${tickers}。
-需包含：現價(price)、本益比(pe)、股價淨值比(pb)、52週最低價(low52)、52週最高價(high52)、市值(marketCap，單位為億台幣)。
-請確保數據與 Yahoo 股市網頁上顯示的即時成交資訊一致。
-請嚴格以 JSON 陣列格式回傳，每個物件包含 ticker, price, pe, pb, low52, high52, marketCap 欄位。`,
-        config: {
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                ticker: { type: Type.STRING },
-                price: { type: Type.NUMBER },
-                pe: { type: Type.NUMBER },
-                pb: { type: Type.NUMBER },
-                low52: { type: Type.NUMBER },
-                high52: { type: Type.NUMBER },
-                marketCap: { type: Type.NUMBER },
-              },
-              required: ["ticker", "price", "pe", "pb", "low52", "high52", "marketCap"]
-            }
-          }
-        },
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tickers, now })
       });
 
-      const fetchedData = JSON.parse(response.text || "[]");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "同步失敗");
+      }
+
+      const fetchedData = await response.json();
       
       if (Array.isArray(fetchedData) && fetchedData.length > 0) {
         setStocks(prev => prev.map(stock => {
-          const newData = fetchedData.find(d => d.ticker === stock.ticker);
+          const newData = fetchedData.find((d: any) => d.ticker === stock.ticker);
           return newData ? { ...stock, ...newData } : stock;
         }));
         setLastUpdated(new Date().toLocaleString('zh-TW', { 
@@ -162,65 +121,39 @@ export default function App() {
           hour12: false
         }));
       } else {
-        throw new Error("AI 回傳數據格式不正確或為空。");
+        throw new Error("伺服器回傳數據格式不正確或為空。");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Market sync failed:", error);
-      setSyncError(error instanceof Error ? error.message : "同步失敗，請檢查網路或 API 金鑰。");
+      setSyncError(error.message || "同步失敗，請檢查伺服器狀態。");
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // AI 風險分析功能
+  // AI 風險分析功能：呼叫後端 API
   const analyzeStockRisk = async (stock: Stock) => {
-    // 檢查是否需要選擇 API Key
-    if (typeof window !== 'undefined' && (window as any).aistudio) {
-      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-      if (!hasKey) {
-        await (window as any).aistudio.openSelectKey();
-      }
-    }
-
     setSelectedStock(stock);
     setIsAnalyzing(true);
     setRiskAnalysis(null);
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-      if (!apiKey) {
-        if (typeof window !== 'undefined' && (window as any).aistudio) {
-          await (window as any).aistudio.openSelectKey();
-        }
-        throw new Error("找不到 API 金鑰。");
-      }
-
-      const ai = new GoogleGenAI({ apiKey });
-      const prompt = `你是一位專業的台股分析師。請針對以下股票進行即時風險分析：
-股票名稱：${stock.name} (${stock.ticker})
-目前股價：${stock.price}
-本益比 (PE)：${stock.pe}
-股價淨值比 (PB)：${stock.pb}
-市值：${stock.marketCap || '未知'} 億
-52週最低價：${stock.low52}
-52週最高價：${stock.high52}
-
-請提供以下三個面向的簡短分析（每項約 100 字）：
-1. 估值風險 (Valuation Risk)：從 PE/PB 與市值規模角度分析目前是否過貴。
-2. 位階風險 (Price Position Risk)：從 52 週高低點分析目前股價所處位置。
-3. 綜合建議 (AI Recommendation)：給予投資者的核心建議。
-
-請以專業且易懂的繁體中文回傳，並使用清晰的分段。`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stock })
       });
 
-      setRiskAnalysis(response.text || "無法產生分析報告。");
-    } catch (error) {
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "分析失敗");
+      }
+
+      const data = await response.json();
+      setRiskAnalysis(data.text || "無法產生分析報告。");
+    } catch (error: any) {
       console.error("Risk analysis failed:", error);
-      setRiskAnalysis("分析過程中發生錯誤，請稍後再試。");
+      setRiskAnalysis(error.message || "分析過程中發生錯誤，請稍後再試。");
     } finally {
       setIsAnalyzing(false);
     }

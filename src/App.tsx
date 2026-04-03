@@ -38,6 +38,7 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [needsKey, setNeedsKey] = useState(false);
   
   // 風險分析狀態
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
@@ -53,16 +54,32 @@ export default function App() {
   // AI 同步功能：使用 Gemini Search Grounding 抓取即時數據
   const syncMarketData = async () => {
     if (isSyncing) return;
+
+    // 檢查是否需要選擇 API Key (針對部署環境)
+    if (typeof window !== 'undefined' && (window as any).aistudio) {
+      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+      if (!hasKey) {
+        setNeedsKey(true);
+        await (window as any).aistudio.openSelectKey();
+        // 假設開啟後使用者會處理，繼續執行或讓使用者再點一次
+      }
+    }
+
     setIsSyncing(true);
     setSyncError(null);
     
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("找不到 API 金鑰。請確保已在設定中配置 GEMINI_API_KEY。");
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
       const tickers = stocks.map(s => s.ticker).join(', ');
       const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
       
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview", // 使用更強大的模型處理搜尋與 JSON
+        model: "gemini-3-flash-preview", // 切換回更具相容性的模型
         contents: `現在時間是台北時間 ${now}。請搜尋並提供以下台股代號的「最新即時」市場數據（若開盤中請提供現價，若收盤請提供今日收盤價）：${tickers}。
 需包含：現價(price)、本益比(pe)、股價淨值比(pb)、52週最低價(low52)、52週最高價(high52)。
 請優先參考 Yahoo Finance 台灣或 Google Finance 的即時數據，確保數據為最新。
@@ -95,7 +112,14 @@ export default function App() {
           const newData = fetchedData.find(d => d.ticker === stock.ticker);
           return newData ? { ...stock, ...newData } : stock;
         }));
-        setLastUpdated(new Date().toLocaleTimeString());
+        setLastUpdated(new Date().toLocaleString('zh-TW', { 
+          year: 'numeric', 
+          month: 'numeric', 
+          day: 'numeric', 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false
+        }));
       } else {
         throw new Error("AI 回傳數據格式不正確或為空。");
       }
@@ -109,12 +133,23 @@ export default function App() {
 
   // AI 風險分析功能
   const analyzeStockRisk = async (stock: Stock) => {
+    // 檢查是否需要選擇 API Key
+    if (typeof window !== 'undefined' && (window as any).aistudio) {
+      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+      if (!hasKey) {
+        await (window as any).aistudio.openSelectKey();
+      }
+    }
+
     setSelectedStock(stock);
     setIsAnalyzing(true);
     setRiskAnalysis(null);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("找不到 API 金鑰。");
+
+      const ai = new GoogleGenAI({ apiKey });
       const prompt = `你是一位專業的台股分析師。請針對以下股票進行即時風險分析：
 股票名稱：${stock.name} (${stock.ticker})
 目前股價：${stock.price}

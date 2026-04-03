@@ -8,9 +8,14 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   app.use(express.json());
+
+  // Health check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", env: process.env.NODE_ENV });
+  });
 
   // API Routes
   app.post("/api/sync", async (req, res) => {
@@ -51,7 +56,16 @@ async function startServer() {
         },
       });
 
-      res.json(JSON.parse(response.text || "[]"));
+      const fetchedText = response.text || "[]";
+      console.log("Fetched AI Text:", fetchedText);
+      
+      try {
+        const parsedData = JSON.parse(fetchedText);
+        res.json(parsedData);
+      } catch (parseError) {
+        console.error("JSON Parse Error:", parseError, "Raw Text:", fetchedText);
+        res.status(500).json({ error: "AI 回傳數據格式錯誤", raw: fetchedText });
+      }
     } catch (error: any) {
       console.error("Server Sync Error:", error);
       res.status(500).json({ error: error.message || "同步失敗" });
@@ -111,7 +125,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

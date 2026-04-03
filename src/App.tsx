@@ -100,9 +100,20 @@ export default function App() {
         body: JSON.stringify({ tickers, now })
       });
 
+      const contentType = response.headers.get("content-type");
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "同步失敗");
+        let errorMessage = "同步失敗";
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } else {
+          errorMessage = `伺服器錯誤 (${response.status}): ${await response.text()}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("伺服器回傳了非 JSON 格式的數據。");
       }
 
       const fetchedData = await response.json();
@@ -144,9 +155,20 @@ export default function App() {
         body: JSON.stringify({ stock })
       });
 
+      const contentType = response.headers.get("content-type");
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "分析失敗");
+        let errorMessage = "分析失敗";
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } else {
+          errorMessage = `伺服器錯誤 (${response.status}): ${await response.text()}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("伺服器回傳了非 JSON 格式的數據。");
       }
 
       const data = await response.json();

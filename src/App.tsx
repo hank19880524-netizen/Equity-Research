@@ -101,13 +101,20 @@ export default function App() {
       });
 
       const contentType = response.headers.get("content-type");
+      const serverType = response.headers.get("X-Server-Type");
+      
       if (!response.ok) {
         let errorMessage = "同步失敗";
         if (contentType && contentType.includes("application/json")) {
           const errorData = await response.json();
           errorMessage = errorData.error || errorMessage;
         } else {
-          errorMessage = `伺服器錯誤 (${response.status}): ${await response.text()}`;
+          const text = await response.text();
+          errorMessage = `伺服器錯誤 (${response.status}): ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`;
+        }
+        
+        if (!serverType) {
+          errorMessage += " (警告: 請求未到達後端伺服器，可能被靜態託管攔截)";
         }
         throw new Error(errorMessage);
       }
@@ -156,13 +163,20 @@ export default function App() {
       });
 
       const contentType = response.headers.get("content-type");
+      const serverType = response.headers.get("X-Server-Type");
+
       if (!response.ok) {
         let errorMessage = "分析失敗";
         if (contentType && contentType.includes("application/json")) {
           const errorData = await response.json();
           errorMessage = errorData.error || errorMessage;
         } else {
-          errorMessage = `伺服器錯誤 (${response.status}): ${await response.text()}`;
+          const text = await response.text();
+          errorMessage = `伺服器錯誤 (${response.status}): ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`;
+        }
+
+        if (!serverType) {
+          errorMessage += " (警告: 請求未到達後端伺服器)";
         }
         throw new Error(errorMessage);
       }

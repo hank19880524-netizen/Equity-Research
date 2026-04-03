@@ -3,21 +3,40 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import cors from "cors";
 
 dotenv.config();
 
 async function startServer() {
+  console.log(`Server starting in ${process.env.NODE_ENV || 'development'} mode...`);
   const app = express();
   const PORT = process.env.PORT || 3000;
 
+  app.use(cors());
   app.use(express.json());
+
+  // Request logging and identification
+  app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    res.setHeader('X-Server-Type', 'Express-Custom-Server');
+    next();
+  });
 
   // Health check
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", env: process.env.NODE_ENV });
+    res.json({ 
+      status: "ok", 
+      env: process.env.NODE_ENV,
+      time: new Date().toISOString(),
+      port: PORT
+    });
   });
 
   // API Routes
+  app.get("/api/sync", (req, res) => {
+    res.json({ message: "後端伺服器連線正常，請使用 POST 方法進行同步數據。" });
+  });
+
   app.post("/api/sync", async (req, res) => {
     try {
       const { tickers, now } = req.body;

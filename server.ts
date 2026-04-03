@@ -23,26 +23,29 @@ async function startServer() {
   });
 
   // Health check
-  app.get("/api/health", (req, res) => {
+  app.get("/stock-api/health", (req, res) => {
     res.json({ 
       status: "ok", 
       env: process.env.NODE_ENV,
       time: new Date().toISOString(),
-      port: PORT
+      port: PORT,
+      message: "後端伺服器運作中"
     });
   });
 
   // API Routes
-  app.get("/api/sync", (req, res) => {
+  app.get("/stock-api/sync", (req, res) => {
     res.json({ message: "後端伺服器連線正常，請使用 POST 方法進行同步數據。" });
   });
 
-  app.post("/api/sync", async (req, res) => {
+  app.post("/stock-api/sync", async (req, res) => {
     try {
       const { tickers, now } = req.body;
+      console.log(`[Sync Request] Tickers: ${tickers}, Time: ${now}`);
       const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
 
       if (!apiKey) {
+        console.error("Missing API Key in environment");
         return res.status(401).json({ error: "伺服器端找不到 API 金鑰。請在設定中配置 GEMINI_API_KEY。" });
       }
 
@@ -76,7 +79,7 @@ async function startServer() {
       });
 
       const fetchedText = response.text || "[]";
-      console.log("Fetched AI Text:", fetchedText);
+      console.log("Fetched AI Text Length:", fetchedText.length);
       
       try {
         const parsedData = JSON.parse(fetchedText);
@@ -91,9 +94,10 @@ async function startServer() {
     }
   });
 
-  app.post("/api/analyze", async (req, res) => {
+  app.post("/stock-api/analyze", async (req, res) => {
     try {
       const { stock } = req.body;
+      console.log(`[Analyze Request] Ticker: ${stock.ticker}`);
       const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
 
       if (!apiKey) {

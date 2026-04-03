@@ -83,6 +83,25 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [newTicker, setNewTicker] = useState('');
 
+  const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+
+  // 檢查伺服器連線
+  useEffect(() => {
+    const checkServer = async () => {
+      try {
+        const res = await fetch('/stock-api/health');
+        if (res.ok) {
+          setServerStatus('online');
+        } else {
+          setServerStatus('offline');
+        }
+      } catch (e) {
+        setServerStatus('offline');
+      }
+    };
+    checkServer();
+  }, []);
+
   // AI 同步功能：呼叫後端 API 抓取即時數據
   const syncMarketData = async () => {
     if (isSyncing) return;
@@ -94,7 +113,7 @@ export default function App() {
       const tickers = stocks.map(s => s.ticker).join(', ');
       const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
       
-      const response = await fetch('/api/sync', {
+      const response = await fetch('/stock-api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tickers, now })
@@ -156,7 +175,7 @@ export default function App() {
     setRiskAnalysis(null);
 
     try {
-      const response = await fetch('/api/analyze', {
+      const response = await fetch('/stock-api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stock })
@@ -233,6 +252,16 @@ export default function App() {
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">台股自動化選股系統</h1>
               <div className="flex items-center gap-2 mt-1">
                 <p className="text-sm font-medium text-slate-500">即時監控市場價值點</p>
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-2 h-2 rounded-full ${
+                    serverStatus === 'online' ? 'bg-emerald-500 animate-pulse' : 
+                    serverStatus === 'offline' ? 'bg-rose-500' : 'bg-amber-500'
+                  }`} />
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    {serverStatus === 'online' ? 'Server Online' : 
+                     serverStatus === 'offline' ? 'Server Offline' : 'Checking...'}
+                  </span>
+                </div>
                 {lastUpdated && (
                   <span className="flex items-center gap-1 text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
                     <Clock size={10} /> 最後更新: {lastUpdated}

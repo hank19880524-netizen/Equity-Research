@@ -10,17 +10,17 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 
 // 初始台股數據 (作為備援)
-const INITIAL_STOCKS = [
-  { ticker: '2330.TW', name: '台積電', price: 780, pe: 20.5, pb: 5.2, low52: 520, high52: 820 },
-  { ticker: '2317.TW', name: '鴻海', price: 145, pe: 13.2, pb: 1.4, low52: 98, high52: 150 },
-  { ticker: '2454.TW', name: '聯發科', price: 1100, pe: 16.8, pb: 3.5, low52: 650, high52: 1200 },
-  { ticker: '2881.TW', name: '富邦金', price: 70, pe: 10.5, pb: 1.1, low52: 58, high52: 72 },
-  { ticker: '2308.TW', name: '台達電', price: 320, pe: 22.1, pb: 4.1, low52: 270, high52: 380 },
-  { ticker: '2002.TW', name: '中鋼', price: 24, pe: 35.0, pb: 1.05, low52: 23, high52: 31 },
-  { ticker: '2891.TW', name: '中信金', price: 31, pe: 11.2, pb: 1.2, low52: 25, high52: 32 },
-  { ticker: '1101.TW', name: '台泥', price: 32, pe: 18.5, pb: 0.9, low52: 31, high52: 40 },
-  { ticker: '2382.TW', name: '廣達', price: 280, pe: 24.5, pb: 3.8, low52: 105, high52: 299 },
-  { ticker: '3231.TW', name: '緯創', price: 115, pe: 19.2, pb: 2.1, low52: 45, high52: 161 },
+const INITIAL_STOCKS: Stock[] = [
+  { ticker: '2330.TW', name: '台積電', price: 780, pe: 20.5, pb: 5.2, low52: 520, high52: 820, marketCap: 200000 },
+  { ticker: '2317.TW', name: '鴻海', price: 145, pe: 13.2, pb: 1.4, low52: 98, high52: 150, marketCap: 20000 },
+  { ticker: '2454.TW', name: '聯發科', price: 1100, pe: 16.8, pb: 3.5, low52: 650, high52: 1200, marketCap: 17000 },
+  { ticker: '2881.TW', name: '富邦金', price: 70, pe: 10.5, pb: 1.1, low52: 58, high52: 72, marketCap: 9000 },
+  { ticker: '2308.TW', name: '台達電', price: 320, pe: 22.1, pb: 4.1, low52: 270, high52: 380, marketCap: 5000 },
+  { ticker: '2002.TW', name: '中鋼', price: 24, pe: 35.0, pb: 1.05, low52: 23, high52: 31, marketCap: 3800 },
+  { ticker: '2891.TW', name: '中信金', price: 31, pe: 11.2, pb: 1.2, low52: 25, high52: 32, marketCap: 6000 },
+  { ticker: '1101.TW', name: '台泥', price: 32, pe: 18.5, pb: 0.9, low52: 31, high52: 40, marketCap: 2300 },
+  { ticker: '2382.TW', name: '廣達', price: 280, pe: 24.5, pb: 3.8, low52: 105, high52: 299, marketCap: 10000 },
+  { ticker: '3231.TW', name: '緯創', price: 115, pe: 19.2, pb: 2.1, low52: 45, high52: 161, marketCap: 3300 },
 ];
 
 interface Stock {
@@ -31,6 +31,7 @@ interface Stock {
   pb: number;
   low52: number;
   high52: number;
+  marketCap?: number; // 新增市值 (億)
 }
 
 export default function App() {
@@ -39,6 +40,37 @@ export default function App() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [needsKey, setNeedsKey] = useState(false);
+  
+  // 新增股票功能
+  const addStock = () => {
+    if (!newTicker.trim()) return;
+    const ticker = newTicker.trim().toUpperCase();
+    if (stocks.some(s => s.ticker === ticker)) {
+      setSyncError("該股票已在清單中。");
+      return;
+    }
+    
+    // 初始化一個空數據的股票，等待同步
+    const newStock: Stock = {
+      ticker,
+      name: ticker.split('.')[0], // 暫時用代號當名稱
+      price: 0,
+      pe: 0,
+      pb: 0,
+      low52: 0,
+      high52: 0
+    };
+    
+    setStocks(prev => [...prev, newStock]);
+    setNewTicker('');
+    // 自動觸發一次同步
+    setTimeout(() => syncMarketData(), 500);
+  };
+
+  // 移除股票功能
+  const removeStock = (ticker: string) => {
+    setStocks(prev => prev.filter(s => s.ticker !== ticker));
+  };
   
   // 風險分析狀態
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
@@ -50,6 +82,7 @@ export default function App() {
   const [maxPB, setMaxPB] = useState(1.5);
   const [lowBaseMargin, setLowBaseMargin] = useState(15);
   const [searchTerm, setSearchTerm] = useState('');
+  const [newTicker, setNewTicker] = useState('');
 
   // AI 同步功能：使用 Gemini Search Grounding 抓取即時數據
   const syncMarketData = async () => {
@@ -69,9 +102,16 @@ export default function App() {
     setSyncError(null);
     
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
+      // 優先使用 GEMINI_API_KEY，其次使用 API_KEY (平台注入)
+      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+      
       if (!apiKey) {
-        throw new Error("找不到 API 金鑰。請確保已在設定中配置 GEMINI_API_KEY。");
+        setSyncError("請先點擊設定選擇 API 金鑰。");
+        if (typeof window !== 'undefined' && (window as any).aistudio) {
+          await (window as any).aistudio.openSelectKey();
+        }
+        setIsSyncing(false);
+        return;
       }
 
       const ai = new GoogleGenAI({ apiKey });
@@ -79,11 +119,11 @@ export default function App() {
       const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
       
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview", // 切換回更具相容性的模型
-        contents: `現在時間是台北時間 ${now}。請搜尋並提供以下台股代號的「最新即時」市場數據（若開盤中請提供現價，若收盤請提供今日收盤價）：${tickers}。
-需包含：現價(price)、本益比(pe)、股價淨值比(pb)、52週最低價(low52)、52週最高價(high52)。
-請優先參考 Yahoo Finance 台灣或 Google Finance 的即時數據，確保數據為最新。
-請嚴格以 JSON 陣列格式回傳，每個物件包含 ticker, price, pe, pb, low52, high52 欄位。`,
+        model: "gemini-3-flash-preview",
+        contents: `現在時間是台北時間 ${now}。請搜尋並提供以下台股代號的「最新即時」市場數據：${tickers}。
+需包含：現價(price)、本益比(pe)、股價淨值比(pb)、52週最低價(low52)、52週最高價(high52)、市值(marketCap，單位為億台幣)。
+請優先參考 Yahoo Finance 台灣。
+請嚴格以 JSON 陣列格式回傳，每個物件包含 ticker, price, pe, pb, low52, high52, marketCap 欄位。`,
         config: {
           tools: [{ googleSearch: {} }],
           responseMimeType: "application/json",
@@ -98,8 +138,9 @@ export default function App() {
                 pb: { type: Type.NUMBER },
                 low52: { type: Type.NUMBER },
                 high52: { type: Type.NUMBER },
+                marketCap: { type: Type.NUMBER },
               },
-              required: ["ticker", "price", "pe", "pb", "low52", "high52"]
+              required: ["ticker", "price", "pe", "pb", "low52", "high52", "marketCap"]
             }
           }
         },
@@ -146,8 +187,13 @@ export default function App() {
     setRiskAnalysis(null);
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("找不到 API 金鑰。");
+      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+      if (!apiKey) {
+        if (typeof window !== 'undefined' && (window as any).aistudio) {
+          await (window as any).aistudio.openSelectKey();
+        }
+        throw new Error("找不到 API 金鑰。");
+      }
 
       const ai = new GoogleGenAI({ apiKey });
       const prompt = `你是一位專業的台股分析師。請針對以下股票進行即時風險分析：
@@ -155,11 +201,12 @@ export default function App() {
 目前股價：${stock.price}
 本益比 (PE)：${stock.pe}
 股價淨值比 (PB)：${stock.pb}
+市值：${stock.marketCap || '未知'} 億
 52週最低價：${stock.low52}
 52週最高價：${stock.high52}
 
 請提供以下三個面向的簡短分析（每項約 100 字）：
-1. 估值風險 (Valuation Risk)：從 PE/PB 角度分析目前是否過貴。
+1. 估值風險 (Valuation Risk)：從 PE/PB 與市值規模角度分析目前是否過貴。
 2. 位階風險 (Price Position Risk)：從 52 週高低點分析目前股價所處位置。
 3. 綜合建議 (AI Recommendation)：給予投資者的核心建議。
 
@@ -259,6 +306,22 @@ export default function App() {
                 className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
               />
             </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <input 
+                type="text" 
+                placeholder="新增代號 (如 2330.TW)" 
+                value={newTicker}
+                onChange={(e) => setNewTicker(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addStock()}
+                className="flex-1 sm:w-48 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm font-bold"
+              />
+              <button 
+                onClick={addStock}
+                className="p-3 bg-slate-900 text-white rounded-2xl hover:bg-slate-800 transition-all active:scale-95"
+              >
+                <Zap size={18} />
+              </button>
+            </div>
           </div>
         </motion.header>
 
@@ -297,7 +360,7 @@ export default function App() {
                   type="number" 
                   dataKey="pe" 
                   name="P/E" 
-                  unit="" 
+                  domain={[0, 'auto']}
                   label={{ value: '本益比 (P/E)', position: 'bottom', offset: 0, fontSize: 12, fontWeight: 600, fill: '#64748b' }}
                   stroke="#94a3b8"
                   fontSize={11}
@@ -307,32 +370,45 @@ export default function App() {
                   type="number" 
                   dataKey="pb" 
                   name="P/B" 
-                  unit="" 
+                  domain={[0, 'auto']}
                   label={{ value: '股價淨值比 (P/B)', angle: -90, position: 'left', offset: 0, fontSize: 12, fontWeight: 600, fill: '#64748b' }}
                   stroke="#94a3b8"
                   fontSize={11}
                   tick={{ fill: '#64748b' }}
                 />
-                <ZAxis type="number" dataKey="price" range={[100, 1000]} />
+                <ZAxis 
+                  type="number" 
+                  dataKey="marketCap" 
+                  range={[100, 4000]} 
+                  name="市值" 
+                  unit="億" 
+                />
                 <Tooltip 
                   cursor={{ strokeDasharray: '3 3' }}
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                       const data = payload[0].payload;
                       return (
-                        <div className="bg-white p-4 rounded-2xl shadow-xl border border-slate-100 min-w-[160px]">
-                          <div className="font-black text-slate-900 border-b border-slate-50 pb-2 mb-2">{data.name}</div>
-                          <div className="space-y-1">
+                        <div className="bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-200 min-w-[180px]">
+                          <div className="font-black text-slate-900 mb-2 flex items-center justify-between border-b border-slate-50 pb-2">
+                            <span>{data.name}</span>
+                            <span className="text-[10px] font-mono text-slate-400">{data.ticker}</span>
+                          </div>
+                          <div className="space-y-1.5">
                             <div className="flex justify-between text-xs font-bold">
-                              <span className="text-slate-400">P/E:</span>
+                              <span className="text-slate-400">本益比 (P/E)</span>
                               <span className={data.pe > maxPE ? 'text-red-500' : 'text-blue-600'}>{data.pe}</span>
                             </div>
                             <div className="flex justify-between text-xs font-bold">
-                              <span className="text-slate-400">P/B:</span>
+                              <span className="text-slate-400">淨值比 (P/B)</span>
                               <span className={data.pb > maxPB ? 'text-red-500' : 'text-blue-600'}>{data.pb}</span>
                             </div>
                             <div className="flex justify-between text-xs font-bold">
-                              <span className="text-slate-400">股價:</span>
+                              <span className="text-slate-400">市值規模</span>
+                              <span className="text-slate-700">{data.marketCap?.toLocaleString()} 億</span>
+                            </div>
+                            <div className="flex justify-between text-xs font-bold">
+                              <span className="text-slate-400">目前股價</span>
                               <span className="text-slate-900">${data.price}</span>
                             </div>
                           </div>
@@ -346,7 +422,7 @@ export default function App() {
                 <ReferenceLine x={maxPE} stroke="#3b82f6" strokeDasharray="5 5" label={{ value: 'PE 門檻', position: 'top', fill: '#3b82f6', fontSize: 10, fontWeight: 700 }} />
                 <ReferenceLine y={maxPB} stroke="#3b82f6" strokeDasharray="5 5" label={{ value: 'PB 門檻', position: 'right', fill: '#3b82f6', fontSize: 10, fontWeight: 700 }} />
                 
-                <Scatter name="Stocks" data={stocks} fill="#8884d8">
+                <Scatter name="Stocks" data={stocks}>
                   {stocks.map((entry, index) => {
                     const isValue = entry.pe <= maxPE && entry.pb <= maxPB;
                     const isRisk = entry.pe > maxPE || entry.pb > maxPB;
@@ -354,7 +430,7 @@ export default function App() {
                     if (isValue) color = "#10b981"; // Emerald
                     else if (isRisk) color = "#ef4444"; // Red
                     
-                    return <Cell key={`cell-${index}`} fill={color} stroke={color} strokeWidth={2} fillOpacity={0.6} />;
+                    return <Cell key={`cell-${index}`} fill={color} stroke={color} strokeWidth={1} fillOpacity={0.5} />;
                   })}
                 </Scatter>
               </ScatterChart>
@@ -474,7 +550,7 @@ export default function App() {
                     <th className="px-6 py-5 font-bold text-xs uppercase tracking-wider text-slate-500">目前股價</th>
                     <th className="px-6 py-5 font-bold text-xs uppercase tracking-wider text-slate-500">P/E</th>
                     <th className="px-6 py-5 font-bold text-xs uppercase tracking-wider text-slate-500">P/B</th>
-                    <th className="px-6 py-5 font-bold text-xs uppercase tracking-wider text-slate-500">52週低點</th>
+                    <th className="px-6 py-5 font-bold text-xs uppercase tracking-wider text-slate-500">價格位階 (52週)</th>
                     <th className="px-6 py-5 font-bold text-xs uppercase tracking-wider text-slate-500">AI 判定</th>
                     <th className="px-8 py-5 font-bold text-xs uppercase tracking-wider text-slate-500 text-right">操作</th>
                   </tr>
@@ -520,8 +596,27 @@ export default function App() {
                               {stock.pb}
                             </span>
                           </td>
-                          <td className="px-6 py-5 text-slate-400 text-sm font-medium tabular-nums">
-                            ${stock.low52.toLocaleString()}
+                          <td className="px-6 py-5">
+                            <div className="w-32 space-y-1.5">
+                              <div className="flex justify-between text-[9px] font-black text-slate-400 uppercase tracking-tighter">
+                                <span>{stock.low52}</span>
+                                <span>{stock.high52}</span>
+                              </div>
+                              <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden relative border border-slate-200/30">
+                                {stock.high52 > stock.low52 && (
+                                  <motion.div 
+                                    initial={{ width: 0 }}
+                                    animate={{ 
+                                      width: `${Math.min(100, Math.max(0, ((stock.price - stock.low52) / (stock.high52 - stock.low52)) * 100))}%` 
+                                    }}
+                                    className={`h-full rounded-full ${stock.isLowBase ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)]'}`}
+                                  />
+                                )}
+                              </div>
+                              <div className="text-[10px] font-bold text-slate-500 text-center tabular-nums">
+                                目前: ${stock.price}
+                              </div>
+                            </div>
                           </td>
                           <td className="px-6 py-5">
                             <div className="flex flex-col gap-1.5">
@@ -543,13 +638,23 @@ export default function App() {
                             </div>
                           </td>
                           <td className="px-8 py-5 text-right">
-                            <button 
-                              onClick={() => analyzeStockRisk(stock)}
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 transition-all active:scale-95"
-                            >
-                              <ShieldAlert size={14} />
-                              風險分析
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              <button 
+                                onClick={() => analyzeStockRisk(stock)}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 transition-all active:scale-95"
+                                title="風險分析"
+                              >
+                                <ShieldAlert size={14} />
+                                <span className="hidden sm:inline">風險分析</span>
+                              </button>
+                              <button 
+                                onClick={() => removeStock(stock.ticker)}
+                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all active:scale-90"
+                                title="移除追蹤"
+                              >
+                                <X size={18} />
+                              </button>
+                            </div>
                           </td>
                         </motion.tr>
                       ))

@@ -120,9 +120,9 @@ export default function App() {
       
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `現在時間是台北時間 ${now}。請搜尋並提供以下台股代號的「最新即時」市場數據：${tickers}。
+        contents: `現在時間是台北時間 ${now}。請直接造訪 https://tw.stock.yahoo.com/ 搜尋並提供以下台股代號的「最新即時」市場數據：${tickers}。
 需包含：現價(price)、本益比(pe)、股價淨值比(pb)、52週最低價(low52)、52週最高價(high52)、市值(marketCap，單位為億台幣)。
-請優先參考 Yahoo Finance 台灣。
+請確保數據與 Yahoo 股市網頁上顯示的即時成交資訊一致。
 請嚴格以 JSON 陣列格式回傳，每個物件包含 ticker, price, pe, pb, low52, high52, marketCap 欄位。`,
         config: {
           tools: [{ googleSearch: {} }],

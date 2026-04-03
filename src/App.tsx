@@ -36,6 +36,7 @@ interface Stock {
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>(INITIAL_STOCKS);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   
   // 風險分析狀態
@@ -53,14 +54,19 @@ export default function App() {
   const syncMarketData = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
+    setSyncError(null);
     
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const tickers = stocks.map(s => s.ticker).join(', ');
+      const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
       
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `請搜尋並提供以下台股代號的最新市場數據（股價、本益比PE、股價淨值比PB、52週最低價、52週最高價）：${tickers}。請嚴格以 JSON 陣列格式回傳，每個物件包含 ticker, price, pe, pb, low52, high52 欄位。`,
+        model: "gemini-3.1-pro-preview", // 使用更強大的模型處理搜尋與 JSON
+        contents: `現在時間是台北時間 ${now}。請搜尋並提供以下台股代號的「最新即時」市場數據（若開盤中請提供現價，若收盤請提供今日收盤價）：${tickers}。
+需包含：現價(price)、本益比(pe)、股價淨值比(pb)、52週最低價(low52)、52週最高價(high52)。
+請優先參考 Yahoo Finance 台灣或 Google Finance 的即時數據，確保數據為最新。
+請嚴格以 JSON 陣列格式回傳，每個物件包含 ticker, price, pe, pb, low52, high52 欄位。`,
         config: {
           tools: [{ googleSearch: {} }],
           responseMimeType: "application/json",
@@ -90,9 +96,12 @@ export default function App() {
           return newData ? { ...stock, ...newData } : stock;
         }));
         setLastUpdated(new Date().toLocaleTimeString());
+      } else {
+        throw new Error("AI 回傳數據格式不正確或為空。");
       }
     } catch (error) {
       console.error("Market sync failed:", error);
+      setSyncError(error instanceof Error ? error.message : "同步失敗，請檢查網路或 API 金鑰。");
     } finally {
       setIsSyncing(false);
     }
@@ -183,6 +192,16 @@ export default function App() {
           </div>
           
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+            {syncError && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold border border-red-100"
+              >
+                <AlertCircle size={14} />
+                {syncError}
+              </motion.div>
+            )}
             <button 
               onClick={syncMarketData}
               disabled={isSyncing}
